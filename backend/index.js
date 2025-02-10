@@ -51,6 +51,102 @@ const isAdmin = (req, res, next) => {
     res.status(403).json({ error: 'Access denied. Admin privileges required.' });
   }
 };
+// Updated function to set proper default capacity
+async function ensureDefaultTimeSlots() {
+  const connection = await pool.getConnection();
+  try {
+    const startTime = 8; 
+    const endTime = 18;  
+    const defaultCapacity = 1; // Change this to 1
+    
+    for (let hour = startTime; hour <= endTime; hour++) {
+      const timeString = `${hour.toString().padStart(2, '0')}:00:00`;
+      await connection.execute(
+        'INSERT IGNORE INTO time_slots (time, capacity, is_active) VALUES (?, ?, ?)',
+        [timeString, defaultCapacity, true]
+      );
+    }
+  } finally {
+    connection.release();
+  }
+}
+
+async function updateExistingTimeSlots() {
+  const connection = await pool.getConnection();
+  try {
+    await connection.execute(
+      'UPDATE time_slots SET capacity = ?',
+      [1] // Set capacity to 1 for all slots
+    );
+    console.log('✅ Updated existing time slots capacity');
+  } catch (error) {
+    console.error('❌ Error updating time slots capacity:', error);
+  } finally {
+    connection.release();
+  }
+}
+
+
+
+// Update your available-dates endpoint
+app.get('/api/available-dates', authenticateToken, async (req, res) => {
+  let connection;
+  try {
+    connection = await pool.getConnection();
+    
+    // First, get all active time slots
+    const [timeSlots] = await connection.execute(
+      'SELECT id, time, capacity FROM time_slots WHERE is_active = 1 ORDER BY time'
+    );
+
+    // Generate dates for the next 30 days
+    const availableSlots = [];
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 30);
+
+    // For each date, check availability
+    for (let date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
+      const dateStr = date.toISOString().split('T')[0];
+      
+      // For each time slot, check bookings for this date
+      const [bookings] = await connection.execute(
+        `SELECT time_slot_id, COUNT(*) as count 
+         FROM appointments 
+         WHERE date = ? 
+         GROUP BY time_slot_id`,
+        [dateStr]
+      );
+
+      // Create a map of bookings for easy lookup
+      const bookingMap = new Map(
+        bookings.map(b => [b.time_slot_id, b.count])
+      );
+
+      // Add available slots for this date
+      for (const slot of timeSlots) {
+        const bookedCount = bookingMap.get(slot.id) || 0;
+        if (bookedCount < slot.capacity) {
+          availableSlots.push({
+            id: slot.id,
+            time: slot.time,
+            date: dateStr,
+            remainingCapacity: slot.capacity - bookedCount
+          });
+        }
+      }
+    }
+
+   
+    res.json(availableSlots);
+
+  } catch (error) {
+    console.error('Error in /api/available-dates:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    if (connection) connection.release();
+  }
+});
 // Login route
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -168,69 +264,38 @@ app.get('/api/auth/check', authenticateToken, (req, res) => {
     } 
   });
 });
-// Update the available-dates endpoint with capacity checking
-app.get('/api/available-dates', authenticateToken, async (req, res) => {
-  let connection;
+// Add this function to initialize time slots for a specific date
+async function ensureTimeSlotsForDate(date) {
+  const connection = await pool.getConnection();
   try {
-    connection = await pool.getConnection();
-    console.log('✅ Connection acquired for available-dates request');
-
-    const currentDate = new Date().toISOString().split('T')[0];
-    console.log('🔍 Querying for dates after:', currentDate);
-    
-    // Modified query to check capacity
-    const [result] = await connection.execute(
-      `SELECT 
-        ts.id,
-        ts.time,
-        ts.date,
-        ts.capacity,
-        COUNT(a.id) as booked_count
-       FROM time_slots ts
-       LEFT JOIN appointments a 
-         ON ts.id = a.time_slot_id 
-         AND ts.date = a.date
-       WHERE ts.date >= ?
-         AND ts.is_active = 1
-       GROUP BY ts.id, ts.date
-       HAVING booked_count < ts.capacity OR booked_count IS NULL
-       ORDER BY ts.date, ts.time`,
-      [currentDate]
+    // Get all default time slots
+    const [timeSlots] = await connection.execute(
+      'SELECT * FROM time_slots WHERE is_active = true ORDER BY time'
     );
 
-    console.log(`✅ Query successful. Found ${result.length} available slots`);
-    
-    // Transform dates to ensure proper JSON serialization
-    const formattedResult = result.map(slot => ({
-      id: slot.id,
-      time: slot.time,
-      date: slot.date instanceof Date ? slot.date.toISOString().split('T')[0] : slot.date,
-      remainingCapacity: slot.capacity - (slot.booked_count || 0)
-    }));
+    // Check existing appointments for the date
+    const [existingAppointments] = await connection.execute(
+      'SELECT time_slot_id, COUNT(*) as count FROM appointments WHERE date = ? GROUP BY time_slot_id',
+      [date]
+    );
 
-    res.json(formattedResult);
+    // Create a map of booked slots and their counts
+    const bookedSlots = new Map(
+      existingAppointments.map(app => [app.time_slot_id, app.count])
+    );
 
-  } catch (error) {
-    console.error('❌ Error in /api/available-dates:', error);
-    
-    if (error.code === 'ER_BAD_FIELD_ERROR') {
-      res.status(500).json({ 
-        error: 'Database schema error',
-        details: 'Please run the schema update script first'
-      });
-    } else {
-      res.status(500).json({ 
-        error: 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
-      });
-    }
+    // Filter available time slots based on capacity
+    const availableSlots = timeSlots.filter(slot => {
+      const bookedCount = bookedSlots.get(slot.id) || 0;
+      return bookedCount < slot.capacity;
+    });
+
+    return availableSlots;
   } finally {
-    if (connection) {
-      connection.release();
-      console.log('✅ Database connection released');
-    }
+    connection.release();
   }
-});
+}
+
 
 // Modify the appointments POST endpoint to include user details
 app.post('/api/appointments', authenticateToken, async (req, res) => {
@@ -305,8 +370,17 @@ app.get('/api/admin/appointments', authenticateToken, isAdmin, async (req, res) 
 
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+
+// Add this to your server startup
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  try {
+    await ensureDefaultTimeSlots();
+    await updateExistingTimeSlots(); // Add this line to update existing slots
+    console.log('✅ Time slots setup complete');
+  } catch (error) {
+    console.error('❌ Error setting up time slots:', error);
+  }
 });
 
 // Log the secret (only for development/debugging)

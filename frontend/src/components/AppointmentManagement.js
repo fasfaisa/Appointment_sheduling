@@ -1,10 +1,13 @@
-// AppointmentList.js
 import React, { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format,parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 
 const AppointmentList = () => {
   const [appointments, setAppointments] = useState([]);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [status, setStatus] = useState({ type: '', message: '' });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchAppointments();
@@ -12,6 +15,7 @@ const AppointmentList = () => {
 
   const fetchAppointments = async () => {
     try {
+      setLoading(true);
       const response = await fetch('http://localhost:3000/api/appointments', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -21,12 +25,22 @@ const AppointmentList = () => {
       setAppointments(data);
     } catch (error) {
       console.error('Error fetching appointments:', error);
+      setStatus({ type: 'error', message: 'Failed to load appointments' });
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleCancel = async (id) => {
+  const handleCancelClick = (appointment) => {
+    setSelectedAppointment(appointment);
+    setShowConfirmDialog(true);
+  };
+
+  const handleCancel = async () => {
+    if (!selectedAppointment) return;
+
     try {
-      const response = await fetch(`http://localhost:3000/api/appointments/${id}`, {
+      const response = await fetch(`http://localhost:3000/api/appointments/${selectedAppointment.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -34,42 +48,125 @@ const AppointmentList = () => {
       });
 
       if (response.ok) {
+        setStatus({ type: 'success', message: 'Appointment cancelled successfully' });
         fetchAppointments();
+      } else {
+        setStatus({ type: 'error', message: 'Failed to cancel appointment' });
       }
     } catch (error) {
       console.error('Error canceling appointment:', error);
+      setStatus({ type: 'error', message: 'Error canceling appointment' });
+    } finally {
+      setShowConfirmDialog(false);
+      setSelectedAppointment(null);
+      
+      setTimeout(() => {
+        setStatus({ type: '', message: '' });
+      }, 3000);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-xl text-gray-600">Loading appointments...</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto mt-8">
-      <h2 className="text-2xl font-bold mb-6">My Appointments</h2>
-      <div className="grid gap-4">
-        {appointments.map(appointment => (
-          <div key={appointment.id} className="p-4 border rounded shadow-sm">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="font-bold">
-                  {format(new Date(appointment.date), 'MMMM d, yyyy')}
-                </p>                                                      
-                <p className="text-gray-600">{appointment.time}</p>
-                {appointment.notes && (
-                  <p className="text-gray-500 mt-2">{appointment.notes}</p>
-                )}
-              </div>
-              <button
-                onClick={() => handleCancel(appointment.id)}
-                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-3xl font-bold text-gray-800 mb-8 text-center">
+          My Appointments
+        </h2>
+
+        {status.message && (
+          <div 
+            className={`mb-6 p-4 rounded-lg text-center ${
+              status.type === 'error' 
+                ? 'bg-red-50 text-red-600 border border-red-200' 
+                : 'bg-green-50 text-green-600 border border-green-200'
+            }`}
+          >
+            {status.message}
+          </div>
+        )}
+
+        {appointments.length === 0 ? (
+          <div className="text-center p-8 bg-white rounded-lg shadow-sm">
+            <p className="text-gray-600">No appointments scheduled</p>
+          </div>
+        ) : (
+          <div className="grid gap-6">
+            {appointments.map(appointment => (
+              <div 
+                key={appointment.id} 
+                className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 hover:shadow-md transition-shadow"
               >
-                Cancel
-              </button>
+                <div className="flex justify-between items-start">
+                  <div className="space-y-2">
+                    <p className="text-xl font-semibold text-gray-800">
+                      {format(new Date(appointment.date), 'MMMM d, yyyy')}
+                    </p>
+                    <p className="text-lg text-gray-600">
+                      Time: {appointment.time}
+                    </p>
+                    {appointment.notes && (
+                      <p className="text-gray-500 mt-2 italic">
+                        Notes: {appointment.notes}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleCancelClick(appointment)}
+                    className="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Custom Confirmation Dialog */}
+        {showConfirmDialog && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg p-6 max-w-md w-full">
+              <h3 className="text-xl font-bold text-gray-800 mb-4">
+                Cancel Appointment
+              </h3>
+              <p className="text-gray-600 mb-6">
+                Are you sure you want to cancel your appointment on{' '}
+                <span className="font-semibold">
+                  {format(new Date(selectedAppointment.date), 'MMMM d, yyyy')} at {selectedAppointment.time}
+                </span>
+                ? This action cannot be undone.
+              </p>
+              <div className="flex justify-end space-x-4">
+                <button
+                  onClick={() => setShowConfirmDialog(false)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  Keep Appointment
+                </button>
+                <button
+                  onClick={handleCancel}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                >
+                  Cancel Appointment
+                </button>
+              </div>
             </div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
-}; 
+};
+
+
 
 const AdminPanel = () => {
   const [appointments, setAppointments] = useState([]);
@@ -119,153 +216,56 @@ const AdminPanel = () => {
     }
   };
 
-  // Handle search and filtering
+  
   useEffect(() => {
-    let filtered = appointments;
+    fetchAppointments();
+  }, []);
 
-    // Filter by status
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter((appointment) => appointment.status === statusFilter);
-    }
-
-    // Filter by search term (user name or email)
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (appointment) =>
-          appointment.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          appointment.userEmail.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
-
+  useEffect(() => {
+    const filtered = appointments.filter((appointment) =>
+      appointment.user_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      appointment.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
     setFilteredAppointments(filtered);
-  }, [searchTerm, statusFilter, appointments]);
+  }, [searchTerm, appointments]);
 
-  // Handle appointment status update
-  const handleUpdateStatus = async (appointmentId, status) => {
-    try {
-      const response = await fetch(
-        `http://localhost:3000/api/admin/appointments/${appointmentId}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-          body: JSON.stringify({ status }),
-        }
-      );
-
-      if (response.ok) {
-        fetchAppointments(); // Refresh the list
-      } else if (response.status === 401) {
-        // Unauthorized (invalid or expired token)
-        setErrorMessage('Your session has expired. Please log in again.');
-        localStorage.removeItem('token'); // Clear the invalid token
-        navigate('/login');
-      }
-    } catch (error) {
-      console.error('Error updating appointment status:', error);
-      setErrorMessage('An error occurred while updating the appointment status.');
-    }
-  };
+  if (errorMessage) {
+    return <div className="text-red-600 p-4">{errorMessage}</div>;
+  }
 
   return (
     <div className="max-w-7xl mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-2xl font-bold mb-6">Admin Panel</h2>
 
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="mb-4 p-2 bg-red-100 text-red-600 border border-red-200 rounded">
-          {errorMessage}
-        </div>
-      )}
+      <input
+        type="text"
+        placeholder="Search by user name..."
+        className="w-full p-2 border rounded mb-6"
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+      />
 
-      {/* Search and Filter Options */}
-      <div className="mb-6 flex gap-4">
-        <input
-          type="text"
-          placeholder="Search by user name or email..."
-          className="w-full p-2 border rounded"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-        <select
-          className="p-2 border rounded"
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-        >
-          <option value="all">All</option>
-          <option value="pending">Pending</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-      </div>
-
-      {/* Appointments Table */}
       <div className="overflow-x-auto">
         <table className="min-w-full bg-white border">
           <thead>
             <tr>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                Date
-              </th>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                Time
-              </th>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                User
-              </th>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                Notes
-              </th>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                Status
-              </th>
-              <th className="px-6 py-3 border-b-2 border-gray-300 text-left text-sm font-semibold text-gray-700">
-                Actions
-              </th>
+              <th className="px-6 py-3 border-b-2 border-gray-300 text-left font-semibold">Date</th>
+              <th className="px-6 py-3 border-b-2 border-gray-300 text-left font-semibold">Time</th>
+              <th className="px-6 py-3 border-b-2 border-gray-300 text-left font-semibold">User</th>
+              <th className="px-6 py-3 border-b-2 border-gray-300 text-left font-semibold">Contact</th>
+              <th className="px-6 py-3 border-b-2 border-gray-300 text-left font-semibold">Notes</th>
             </tr>
           </thead>
           <tbody>
             {filteredAppointments.map((appointment) => (
               <tr key={appointment.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 border-b border-gray-200">
-                  {format(new Date(appointment.date), 'MMMM d, yyyy')}
+                <td className="px-6 py-4 border-b">
+                  {format(parseISO(appointment.date), 'MMMM d, yyyy')}
                 </td>
-                <td className="px-6 py-4 border-b border-gray-200">{appointment.time}</td>
-                <td className="px-6 py-4 border-b border-gray-200">
-                  {appointment.userName} ({appointment.userEmail})
-                </td>
-                <td className="px-6 py-4 border-b border-gray-200">{appointment.notes}</td>
-                <td className="px-6 py-4 border-b border-gray-200">
-                  <span
-                    className={`px-2 py-1 text-sm rounded-full ${
-                      appointment.status === 'pending'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : appointment.status === 'confirmed'
-                        ? 'bg-green-100 text-green-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
-                  >
-                    {appointment.status}
-                  </span>
-                </td>
-                <td className="px-6 py-4 border-b border-gray-200">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleUpdateStatus(appointment.id, 'confirmed')}
-                      className="bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onClick={() => handleUpdateStatus(appointment.id, 'cancelled')}
-                      className="bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </td>
+                <td className="px-6 py-4 border-b">{appointment.time}</td>
+                <td className="px-6 py-4 border-b">{appointment.user_name}</td>
+                <td className="px-6 py-4 border-b">{appointment.contact}</td>
+                <td className="px-6 py-4 border-b">{appointment.notes || '-'}</td>
               </tr>
             ))}
           </tbody>

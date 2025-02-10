@@ -1,17 +1,57 @@
 import React, { useState, useEffect } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO, isAfter, startOfDay } from 'date-fns';
 
-const Calendar = ({ onBookingComplete }) => {
+const Calendar = ({ onBookingComplete, onReturnToDashboard }) => {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [availableDates, setAvailableDates] = useState([]);
   const [selectedTimeSlot, setSelectedTimeSlot] = useState(null);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  useEffect(() => {
-    fetchAvailableDates();
-  }, []);
+  const getDaysInMonth = () => {
+    const start = startOfMonth(selectedDate);
+    const end = endOfMonth(selectedDate);
+    return eachDayOfInterval({ start, end });
+  };
+
+  const isDateAvailable = (date) => {
+    const today = startOfDay(new Date());
+    const availableTimes = getAvailableTimesForDate(date);
+    return (isAfter(startOfDay(date), today) || isSameDay(date, today)) && 
+           availableTimes.length > 0;
+  };
+
+  const getAvailableTimesForDate = (date) => {
+    if (!date) return [];
+    
+    const dateStr = format(date, 'yyyy-MM-dd');
+    const now = new Date();
+    const isToday = isSameDay(date, now);
+    
+    return availableDates
+      .filter(slot => {
+        // Must be for the selected date
+        if (slot.date !== dateStr) return false;
+        
+        // Remove slots that are already booked (zero remaining capacity)
+        if (slot.remainingCapacity === 0) return false;
+        
+        // For today, must be a future time
+        if (isToday) {
+          const slotTime = parseISO(`${dateStr}T${slot.time}`);
+          return isAfter(slotTime, now);
+        }
+        
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = parseISO(`2000-01-01T${a.time}`);
+        const timeB = parseISO(`2000-01-01T${b.time}`);
+        return timeA - timeB;
+      });
+  };
 
   const fetchAvailableDates = async () => {
     try {
@@ -21,7 +61,8 @@ const Calendar = ({ onBookingComplete }) => {
       const response = await fetch('http://localhost:3000/api/available-dates', {
         headers: {
           'Authorization': `Bearer ${token}`
-        }
+        },
+        cache: 'no-store'
       });
       
       if (!response.ok) {
@@ -29,34 +70,22 @@ const Calendar = ({ onBookingComplete }) => {
       }
       
       const data = await response.json();
-      const parsedSlots = data.map(slot => ({
-        date: parseISO(slot.date),
-        time: slot.time,
-        id: slot.id
-      }));
+      
+      const parsedSlots = data
+        .filter(slot => slot.remainingCapacity === 1) // Only slots with exactly 1 capacity
+        .map(slot => ({
+          ...slot,
+          time: slot.time.substring(0, 5),
+          displayTime: format(parseISO(`2000-01-01T${slot.time}`), 'h:mm a')
+        }));
       
       setAvailableDates(parsedSlots);
     } catch (error) {
+      console.error('Error fetching dates:', error);
       setError('Failed to load available dates');
     } finally {
       setLoading(false);
     }
-  };
-
-  const getDaysInMonth = () => {
-    const start = startOfMonth(selectedDate);
-    const end = endOfMonth(selectedDate);
-    return eachDayOfInterval({ start, end });
-  };
-
-  // Modified to allow future dates
-  const isDateAvailable = (date) => {
-    const today = startOfDay(new Date());
-    return isAfter(startOfDay(date), today) || isSameDay(date, today);
-  };
-
-  const getAvailableTimesForDate = (date) => {
-    return availableDates.filter(slot => isSameDay(slot.date, date));
   };
 
   const handleDateClick = (date) => {
@@ -71,7 +100,10 @@ const Calendar = ({ onBookingComplete }) => {
     const slotId = e.target.value;
     
     if (slotId) {
-      const slot = availableDates.find(slot => slot.id.toString() === slotId.toString());
+      const slot = availableDates.find(slot => 
+        slot.id.toString() === slotId.toString() && 
+        slot.remainingCapacity > 0
+      );
       if (slot) {
         setSelectedTimeSlot(slot);
         setShowBookingForm(true);
@@ -82,35 +114,46 @@ const Calendar = ({ onBookingComplete }) => {
     }
   };
 
-  const handleBookingComplete = () => {
-    setShowBookingForm(false);
-    setSelectedTimeSlot(null);
-    fetchAvailableDates();
-    if (onBookingComplete) onBookingComplete();
+  const handleBookingComplete = async () => {
+    try {
+      // Reset form state
+      setSelectedTimeSlot(null);
+      setShowBookingForm(false);
+      
+      // Force a refresh of available dates
+      await fetchAvailableDates();
+      
+      // Increment refresh key to force component update
+      setRefreshKey(prev => prev + 1);
+      
+      // Call the original onBookingComplete if provided
+      if (onBookingComplete) {
+        onBookingComplete();
+      }
+    } catch (error) {
+      console.error('Error refreshing dates after booking:', error);
+    }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Loading calendar...</div>
-      </div>
-    );
-  }
+  // Fetch available dates on mount and when refreshKey changes
+  useEffect(() => {
+    fetchAvailableDates();
+  }, [refreshKey]);
 
-  if (error) {
-    return (
-      <div className="text-center p-4 text-red-500 bg-red-50 rounded-lg">
-        {error}
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center h-64">
+    <div className="text-lg text-gray-600">Loading calendar...</div>
+  </div>;
+
+  if (error) return <div className="text-center p-4 text-red-500 bg-red-50 rounded-lg">{error}</div>;
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="text-xl font-bold mb-4 text-center">
-          {format(selectedDate, 'MMMM yyyy')}
-        </div>
+    <div className="flex justify-center min-h-screen">
+      <div className="w-full max-w-4xl space-y-6">
+        {!showBookingForm ? (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="text-xl font-bold mb-4 text-center">
+              {format(selectedDate, 'MMMM yyyy')}
+            </div>
         
         <div className="grid grid-cols-7 gap-2">
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
@@ -132,7 +175,7 @@ const Calendar = ({ onBookingComplete }) => {
                 className={`
                   h-12 p-2 relative rounded-lg transition-colors
                   ${isPastDate ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white hover:bg-blue-50 cursor-pointer'}
-                  ${isSelected ? 'bg-blue-500 text-white hover:bg-blue-600' : ''}
+                  ${isSelected ? 'bg-blue-500 text-black hover:bg-blue-600' : ''}
                   border border-gray-200
                 `}
               >
@@ -148,37 +191,44 @@ const Calendar = ({ onBookingComplete }) => {
         </div>
 
         {isDateAvailable(selectedDate) && (
-          <div className="mt-6 space-y-4">
-            <div className="text-center font-medium">
-              Available times for {format(selectedDate, 'MMMM d, yyyy')}:
-            </div>
-            <select
-              value={selectedTimeSlot?.id || ''}
-              onChange={handleTimeSelect}
-              className="w-full p-2 border rounded-md"
-            >
-              <option value="">Select a time</option>
-              {getAvailableTimesForDate(selectedDate).map((slot) => (
-                <option key={slot.id} value={slot.id}>
-                  {slot.time}
-                </option>
-              ))}
-            </select>
-          </div>
+              <div className="mt-6 space-y-4">
+                <div className="text-center font-medium">
+                  Available times for {format(selectedDate, 'MMMM d, yyyy')}:
+                </div>
+                <select
+                  value={selectedTimeSlot?.id || ''}
+                  onChange={handleTimeSelect}
+                  className="w-full p-2 border rounded-md"
+                >
+                  <option value="">Select a time</option>
+                  {getAvailableTimesForDate(selectedDate).map((slot) => (
+                    <option key={slot.id} value={slot.id}>
+                      {slot.displayTime}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+         </div>
+        ) : (
+          <BookingForm
+            selectedDate={selectedDate}
+            selectedTimeSlot={selectedTimeSlot}
+            onBookingComplete={handleBookingComplete}
+            onCancel={() => {
+              setShowBookingForm(false);
+              setSelectedTimeSlot(null);
+              if (onReturnToDashboard) {
+                onReturnToDashboard();
+              }
+            }}
+          />
         )}
       </div>
-
-      {showBookingForm && selectedTimeSlot && (
-        <BookingForm
-          selectedDate={selectedDate}
-          selectedTimeSlot={selectedTimeSlot}
-          onBookingComplete={handleBookingComplete}
-        />
-      )}
     </div>
   );
 };
-const BookingForm = ({ selectedDate, selectedTimeSlot, onBookingComplete }) => {
+const BookingForm = ({ selectedDate, selectedTimeSlot, onBookingComplete, onCancel }) => {
   const [formData, setFormData] = useState({
     name: '',
     contact: '',
@@ -267,12 +317,22 @@ const BookingForm = ({ selectedDate, selectedTimeSlot, onBookingComplete }) => {
           />
         </div>
 
-        <button
-          type="submit"
-          className="w-full bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600 transition-colors"
-        >
-          Confirm Booking
-        </button>
+        <div className="flex justify-between">
+          <button
+            type="button"
+            className="bg-gray-400 text-white px-4 py-2 rounded-md hover:bg-gray-500 transition-colors"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+
+          <button
+            type="submit"
+            className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
+          >
+            Confirm Booking
+          </button>
+        </div>
       </form>
     </div>
   );

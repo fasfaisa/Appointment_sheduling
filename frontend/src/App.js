@@ -41,7 +41,7 @@ const Navbar = () => {
   };
 
   return (
-    <nav className="bg-blue-600 p-4 relative">
+    <nav className="bg-blue-900 p-4 relative">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
         <div className="text-white font-bold text-xl">Appointment System</div>
         
@@ -53,6 +53,7 @@ const Navbar = () => {
         </button>
 
         <div className="hidden lg:flex space-x-4">
+        <Link to="/" className="text-white hover:text-blue-200">Home</Link>
           {token ? (
             <>
               <Link to="/dashboard" className="text-white hover:text-blue-200">Dashboard</Link>
@@ -97,8 +98,8 @@ const Navbar = () => {
 const Dashboard = () => {
   const [selectedDate, setSelectedDate] = useState(null);
   const [availableSlots, setAvailableSlots] = useState([]);
-  const [showBookingForm, setShowBookingForm] = useState(false);
-  const [loading, setLoading] = useState(false);
+
+
 
   // Handle date selection
  
@@ -134,29 +135,60 @@ const Dashboard = () => {
     </div>
   );
 };
- 
+const Home = () => {
+  return (
+    <div className="flex flex-col justify-center items-center text-white text-center overflow-hidden"
+         style={{
+           backgroundImage: "url('https://img.freepik.com/free-vector/appointment-booking-with-smartphone_23-2148563107.jpg?t=st=1739200769~exp=1739204369~hmac=251f568fc195703dd99258e3c66ff1e3d49ad8b0e31e1c96faffcff691931439&w=740')",
+           backgroundSize: 'cover',
+           backgroundPosition: 'center',
+           backgroundRepeat: 'no-repeat',
+           width: '100%',  // Changed from 100vw
+           height: '100vh',
+           animation: "bgFade 10s infinite alternate"
+         }}>
+      <h1 className="text-5xl text-black font-bold mb-4">Welcome to Our Appointment Booking System</h1>
+      <h2 className="text-2xl text-black mb-6">Book your appointments easily and conveniently.</h2>
+      <Link to="/appointmentbooking" className="bg-blue-600 px-6 py-2 rounded-lg hover:bg-blue-800 transition">
+        Book an Appointment
+      </Link>
+    </div>
+  );
+};
+
+const Footer = () => {
+  return (
+    <footer className="bg-blue-900 text-white text-center p-2 fixed bottom-0 w-full">
+      &copy; {new Date().getFullYear()} All Rights Reserved.
+    </footer>
+  );
+};
 
 const App = () => {
   return (
     <Router>
-      <Navbar />
-      <div className="container mx-auto px-4 py-8">
-        <Routes>
-          <Route path="/login" element={<LoginForm />} />
-          <Route path="/signup" element={<SignupForm />} />
-          <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/appointmentbooking" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/appointments" element={<ProtectedRoute><AppointmentList /></ProtectedRoute>} />
-          <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
-          <Route 
-            path="/" 
-            element={
-              localStorage.getItem('token') 
-                ? <Navigate to="/dashboard" replace /> 
-                : <Navigate to="/login" replace />
-            } 
-          />
-        </Routes>
+      <div className="flex flex-col min-h-screen">
+        <Navbar />
+        <main className="flex-grow container mx-auto px-4 py-6">
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<LoginForm />} />
+            <Route path="/signup" element={<SignupForm />} />
+            <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/appointmentbooking" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/appointments" element={<ProtectedRoute><AppointmentList /></ProtectedRoute>} />
+            <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
+            <Route 
+              path="/" 
+              element={
+                localStorage.getItem('token') 
+                  ? <Navigate to="/dashboard" replace /> 
+                  : <Navigate to="/login" replace />
+              } 
+            />
+          </Routes>
+        </main>
+        <Footer />
       </div>
     </Router>
   );
