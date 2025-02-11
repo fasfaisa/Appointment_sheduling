@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { format,parseISO } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
 
 const AppointmentList = () => {
   const [appointments, setAppointments] = useState([]);
@@ -166,22 +168,21 @@ const AppointmentList = () => {
   );
 };
 
-
-
 const AdminPanel = () => {
   const [appointments, setAppointments] = useState([]);
   const [filteredAppointments, setFilteredAppointments] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [errorMessage, setErrorMessage] = useState('');
+  const [dailyStats, setDailyStats] = useState([]);
   const navigate = useNavigate();
 
-  // Check if the user is authenticated (token exists)
+  // Check if user is authenticated
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) {
       setErrorMessage('You are not authorized to access this page.');
-      navigate('/login'); // Redirect to login if no token is found
+      navigate('/login');
     } else {
       fetchAppointments();
     }
@@ -210,16 +211,27 @@ const AdminPanel = () => {
       const data = await response.json();
       setAppointments(data);
       setFilteredAppointments(data);
+      
+      // Process data for the graph
+      const appointmentsByDate = data.reduce((acc, appointment) => {
+        const date = format(parseISO(appointment.date), 'MMM d');
+        acc[date] = (acc[date] || 0) + 1;
+        return acc;
+      }, {});
+
+      const statsData = Object.entries(appointmentsByDate).map(([date, count]) => ({
+        date,
+        appointments: count
+      }));
+
+      // Sort by date
+      statsData.sort((a, b) => parseISO(a.date) - parseISO(b.date));
+      setDailyStats(statsData);
     } catch (error) {
       console.error('Error fetching appointments:', error);
       setErrorMessage('An error occurred while fetching appointments.');
     }
   };
-
-  
-  useEffect(() => {
-    fetchAppointments();
-  }, []);
 
   useEffect(() => {
     const filtered = appointments.filter((appointment) =>
@@ -236,6 +248,28 @@ const AdminPanel = () => {
   return (
     <div className="max-w-7xl mx-auto mt-8 p-6 bg-white rounded-lg shadow-md">
       <h2 className="text-2xl font-bold mb-6">Admin Panel</h2>
+
+      {/* Appointments Graph */}
+      <div className="mb-8 bg-white p-4 rounded-lg shadow">
+        <h3 className="text-lg font-semibold mb-4">Daily Appointments Overview</h3>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dailyStats}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Line 
+                type="monotone" 
+                dataKey="appointments" 
+                stroke="#2563eb" 
+                strokeWidth={2}
+                dot={{ fill: '#2563eb' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
 
       <input
         type="text"
