@@ -56,12 +56,12 @@ npm install
 
 3. Create a `.env` file with the following variables:
 ```
-PORT=3000
-JWT_SECRET=your_secret_key
+PORT=5000
 DB_HOST=localhost
 DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=appointment_system
+DB_PASSWORD=
+DB_NAME=appointment_db
+JWT_SECRET=
 ```
 
 4. Start the server:
