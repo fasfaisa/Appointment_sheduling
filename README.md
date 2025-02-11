@@ -56,8 +56,7 @@ npm install
 
 3. Create a `.env` file with the following variables:
 ```
-PORT=3000
-JWT_SECRET=your_secret_key
+PORT=5000
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=your_password
