@@ -38,10 +38,10 @@ A full-stack application for managing appointments with user authentication, boo
 ### Database Setup
 1. Create a new MySQL database:
 ```sql
-CREATE DATABASE appointment_system;
+CREATE DATABASE appointment_db;
 ```
 
-2. Import the schema from `database-schema.sql`
+2. Import the schema from `appointment_db.sql`
 
 ### Backend Setup
 1. Navigate to the backend directory:
@@ -61,7 +61,10 @@ JWT_SECRET=your_secret_key
 DB_HOST=localhost
 DB_USER=root
 DB_PASSWORD=your_password
-DB_NAME=appointment_system
+DB_NAME=appointment_db
+# Admin Credentials
+ADMIN_EMAIL=admin@gmail.com
+ADMIN_PASSWORD=your_password
 ```
 
 4. Start the server:
@@ -101,16 +104,4 @@ npm start
 
 
 
-## Enhancement Possibilities
-
-1. Email notifications for bookings and cancellations
-2. Calendar view for appointment slots
-3. Recurring appointment slots
-4. Multiple service providers/resources
-5. Appointment reminders
-6. Analytics dashboard for admins
-7. Integration with external calendar systems
-8. Mobile app version
-9. Multi-language support
-10. Payment integration for paid appointments
 
